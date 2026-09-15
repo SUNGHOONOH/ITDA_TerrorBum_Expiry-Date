@@ -1,0 +1,31 @@
+# 데이터 (절대 커밋 금지)
+상품사진입니다/
+val_images/
+*.jpg
+*.jpeg
+*.png
+
+# 가산점 원본·라벨은 Release Asset 또는 외부 링크로 제공
+custom_data/images/
+custom_data/annotations/
+custom_data/labels/
+custom_data/validation_214/
+custom_data_v*.zip
+
+# 대용량 가중치
+weights/*
+!weights/README.md
+*.pt
+*.pth
+*.pdiparams
+*.safetensors
+
+# 산출물
+submission.csv
+executed.ipynb
+.ipynb_checkpoints/
+
+# 환경
+.venv/
+__pycache__/
+.DS_Store

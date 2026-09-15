@@ -1,0 +1,4 @@
+﻿sampling_bucket,source,image_count,product_group_count,current_share,sampling_unit,note
+new_real_photo,new_date_real,206,206,0.412,product_group,정방향 보정 실사 원본; 신규 실사 source로 충분히 노출
+new_real_photo,new_images_real,200,100,0.4,product_group,100개 제품군×2장; 각 2장 같은 product_group
+new_real_photo_aug,new_date_augmented,94,94,0.188,product_group,new_date 원본과 같은 product_group; 독립 제품으로 중복 샘플링하지 않음

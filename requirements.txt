@@ -1,0 +1,14 @@
+# ── 노트북 실행 (규정상 필수) ──────────────────────
+nbconvert==7.16.4
+ipykernel==6.29.5
+
+# ── PP-OCR DET + REC ────────────────────────────
+# 두 REC 모델을 main 경로에서 항상 함께 사용하고, DET는 설정으로 교체한다.
+paddlepaddle==3.3.1
+paddleocr==3.7.0
+
+# ── 공통 ─────────────────────────────────────────
+numpy==1.26.4
+pandas==2.2.2
+opencv-python-headless==4.10.0.84
+python-dateutil==2.9.0.post0

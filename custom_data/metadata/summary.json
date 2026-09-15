@@ -1,0 +1,21 @@
+{
+  "version": "custom_data_v1",
+  "image_count": 500,
+  "box_count": 471,
+  "nonempty_transcription_box_count": 471,
+  "none_image_count": 29,
+  "source_counts": {
+    "new_date_real": 206,
+    "new_date_augmented": 94,
+    "new_images_real": 200
+  },
+  "box_coordinate_corrections": {
+    "swap_xy": 1,
+    "clip_to_frame": 1
+  },
+  "source_bytes": 1589206883,
+  "compressed_image_bytes": 155865253,
+  "max_side": 1600,
+  "jpeg_quality": 88,
+  "coordinate_note": "CVAT box coordinates were scaled by the same image resize factor."
+}
