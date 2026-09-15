@@ -1,9 +1,8 @@
 """CPU inference runtime used by the submission notebook.
 
 The recognition path deliberately runs the fine-tuned Korean PP-OCRv5 and
-numeric PP-OCRv6 recognizers for every detected text line.  DET is selected
-by ``ITDA_DET_MODE`` so the single-detector and full->date cascade variants
-share exactly the same REC and date-selection code.
+numeric PP-OCRv6 recognizers for every detected text line. One fine-tuned
+PP-OCRv6 detector supplies candidates for the shared date-selection code.
 """
 
 from __future__ import annotations
@@ -11,30 +10,19 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 
-# Keep the parser inside the independently cloned submission repository.
-_PARSER_ROOT = Path(__file__).resolve().parent
-if str(_PARSER_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PARSER_ROOT))
-from expiry_parser_v4 import (  # noqa: E402
+from .parser import (
     choose_expiry_date as _choose_expiry_date,
     extract_date_candidates as _extract_date_candidates,
 )
 
 
 REC_FILES = ("inference.json", "inference.pdiparams", "inference.yml")
-DET_MODES = {
-    "single": ("det_single",),
-    "full": ("det_full",),
-    "date": ("det_date",),
-    "cascade": ("det_full", "det_date"),
-}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
 
@@ -50,11 +38,8 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def ensure_weights(weights_dir: Path, det_mode: str) -> None:
-    if det_mode not in DET_MODES:
-        raise ValueError(f"unknown ITDA_DET_MODE: {det_mode!r}")
-    required = [weights_dir / "rec_v5", weights_dir / "rec_v6"]
-    required += [weights_dir / name for name in DET_MODES[det_mode]]
+def ensure_weights(weights_dir: Path) -> None:
+    required = [weights_dir / "det_single", weights_dir / "rec_v5", weights_dir / "rec_v6"]
     missing = [str(path) for path in required if not _model_ready(path)]
     if missing:
         raise FileNotFoundError(
@@ -74,8 +59,8 @@ def ensure_weights(weights_dir: Path, det_mode: str) -> None:
                 raise RuntimeError(f"weight checksum mismatch: {relative}")
 
 
-def load_models(weights_dir: Path, det_mode: str, cpu_threads: int = 4):
-    """Load selected DET model(s) and both fixed REC models once."""
+def load_models(weights_dir: Path, cpu_threads: int = 4):
+    """Load the one DET model and both fixed REC models once."""
     from paddleocr import TextDetection, TextRecognition
 
     kwargs = dict(device="cpu", enable_mkldnn=False, cpu_threads=cpu_threads)
@@ -91,14 +76,12 @@ def load_models(weights_dir: Path, det_mode: str, cpu_threads: int = 4):
             **kwargs,
         ),
     }
-    detectors = {}
-    for name in DET_MODES[det_mode]:
-        detectors[name] = TextDetection(
-            model_name="PP-OCRv6_small_det",
-            model_dir=str(weights_dir / name),
-            **kwargs,
-        )
-    return {"detectors": detectors, "recognizers": recognizers}
+    detector = TextDetection(
+        model_name="PP-OCRv6_small_det",
+        model_dir=str(weights_dir / "det_single"),
+        **kwargs,
+    )
+    return {"detector": detector, "recognizers": recognizers}
 
 
 def detect(image: np.ndarray, detector) -> list[np.ndarray]:
@@ -212,19 +195,9 @@ def choose(records: list[dict]):
     )
 
 
-def predict_image(image: np.ndarray, models, det_mode: str):
-    if det_mode == "cascade":
-        full_boxes = detect(image, models["detectors"]["det_full"])
-        records = recognize_boxes(image, full_boxes, models, "full")
-        for full_box in full_boxes[:4]:
-            full_crop = crop_quad(image, full_box)
-            date_boxes = detect(full_crop, models["detectors"]["det_date"])
-            records.extend(recognize_boxes(full_crop, date_boxes, models, "date_in_full"))
-        boxes = full_boxes
-    else:
-        detector_name = DET_MODES[det_mode][0]
-        boxes = detect(image, models["detectors"][detector_name])
-        records = recognize_boxes(image, boxes, models, detector_name)
+def predict_image(image: np.ndarray, models):
+    boxes = detect(image, models["detector"])
+    records = recognize_boxes(image, boxes, models, "det_single")
 
     winner = choose(records)
     if winner is None and boxes:

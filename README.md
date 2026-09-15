@@ -1,68 +1,68 @@
 # ITDA TerrorBum Expiry-Date
 
-제3회 ITDA 연합학술제 — 상품 소비기한 OCR 추출
+제3회 ITDA 연합학술제 상품 소비기한 OCR 제출본이다. 운영진이 `predict.ipynb`을 Run All 하면, 주입된 이미지 폴더를 처리해 `submission.csv`를 생성한다.
 
-## 환경
-- Python 3.10
-- CPU 전용 (GPU 불필요)
+## 모델 구성
 
-## 설치
+- 단일 파인튜닝 `PP-OCRv6_small_det`
+- 파인튜닝 `korean_PP-OCRv5_mobile_rec`와 `PP-OCRv6_small_rec`의 동시 인식
+- 소비/유통기한 문맥, 날짜 유효성, 좌표를 결합하는 날짜 parser
+
+GPU와 외부 API를 사용하지 않는다. CPU 스레드는 4개로 고정한다.
+
+## 가중치 준비
+
+채점 서버는 인터넷이 차단되어 있다. 운영진은 온라인 상태에서 **한 번만** 다음을 실행해 Release Asset의 가중치를 `weights/`에 내려받는다.
+
 ```bash
-pip install -r requirements.txt
-```
-
-## 가중치
-`weights/` 안에 있으면 우선 사용합니다. 현재 확정된 인식기는 항상 두 개를 함께 사용합니다.
-
-- `weights/rec_v5/`: 파인튜닝한 `korean_PP-OCRv5_mobile_rec`
-- `weights/rec_v6/`: 파인튜닝한 `PP-OCRv6_small_rec`
-- `weights/det_single/`: 현재 임시 기본값인 단일 PP-OCRv6 DET
-- `weights/det_full/`, `weights/det_date/`: 2단계 DET를 선택할 때 교체·추가
-- `weights/`의 `*.pdiparams`는 Git에 올리지 않고 GitHub Release Asset으로 배포합니다.
-
-채점 서버는 인터넷이 차단되어 있습니다. 운영진이 온라인 상태에서 **채점 전에 한 번** 아래처럼 실행해 가중치를 내려받습니다.
-```bash
-export ITDA_PP_OCR_WEIGHTS_URL='https://github.com/<org>/<repo>/releases/download/<tag>/itda-ocr-weights.tar.gz'
+export ITDA_PP_OCR_WEIGHTS_URL='https://github.com/SUNGHOONOH/ITDA_TerrorBum_Expiry-Date/releases/download/<tag>/itda-ocr-weights.tar.gz'
 bash download_weights.sh
 ```
-`predict.ipynb`는 인터넷을 사용하지 않으며, 이미 `weights/`에 내려받은 모델만 읽습니다. 가중치 다운로드 코드는 `download_weights.sh`에만 있습니다.
 
-## 실행
+`predict.ipynb`에는 가중치 다운로드 코드가 없으며, 이미 존재하는 `weights/det_single`, `weights/rec_v5`, `weights/rec_v6`만 읽는다.
+
+## 채점 재현성 검증
+
+공지의 자가 점검 절차와 같다. 가중치 설치가 끝난 뒤 인터넷을 끊고 아래 명령을 실행한다.
+
 ```bash
-export ITDA_INPUT_DIR=./val_images
-export ITDA_OUTPUT_PATH=./submission.csv
-jupyter nbconvert --to notebook --execute predict.ipynb --output /tmp/out.ipynb
+git clone https://github.com/SUNGHOONOH/ITDA_TerrorBum_Expiry-Date.git
+cd ITDA_TerrorBum_Expiry-Date
+python3.10 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+
+# 온라인 상태에서 1회 실행
+bash download_weights.sh
+
+# 인터넷을 차단한 뒤 실행
+ITDA_INPUT_DIR=/tmp/test_imgs ITDA_OUTPUT_PATH=/tmp/submission.csv \
+  jupyter nbconvert --to notebook --execute predict.ipynb \
+  --ExecutePreprocessor.timeout=2400 --output /tmp/executed.ipynb
 ```
+
+`/tmp/submission.csv`가 생성되면 제출 환경 검증을 통과한다.
 
 ## 출력
-`submission.csv` — `image_id, year, month, day, final_date`
-미인식 필드는 `NONE`입니다. 전 필드 미인식 시 `final_date`도 `NONE`이며, 일부만 인식된 경우에는 없는 필드를 포함해 하이픈으로 연결합니다(예: `NONE-02-18`).
 
-## 추론 구조
-1. DET 후보 영역 생성 (full/date-only 선택 전까지 임시 어댑터)
-2. 각 후보를 파인튜닝한 한국어 PP-OCRv5와 PP-OCRv6로 항상 함께 인식
-3. 두 인식 결과를 날짜 후보·신뢰도·소비/유통기한 문맥으로 결합
-4. 날짜 형식·달력 유효성·소비/유통기한 문맥으로 최종 선택
-5. 불확실한 결과만 원본 ROI를 확대하고 CLAHE/도트 획 보정 후 재인식
-
-현재 기본 `ITDA_DET_MODE=single`은 기존 단일 PP-OCRv6 DET입니다. `full`, `date`, `cascade`를 선택하면 해당 export 디렉터리를 사용하므로 DET 결정을 바꿔도 REC·parser 코드는 바뀌지 않습니다. REC 두 개를 고르는 구조가 아니라, 두 REC를 `main` 경로에서 매번 함께 사용하도록 되어 있습니다.
-
-`000001~000200`은 로컬 검증 전용 분리이며, 제출 노트북은 운영진이 `INPUT_DIR`에 넣은 모든 이미지를 처리합니다.
+`submission.csv` 컬럼은 `image_id,year,month,day,final_date`다. 날짜를 찾지 못하면 모든 날짜 필드와 `final_date`를 `NONE`으로 기록한다.
 
 ## 자체 수집 데이터
-가산점 심사용 자체 수집 데이터는 `custom_data_v1.zip` Release Asset으로 제공한다. `custom_data/`에는 데이터 위치와 구조 설명, 이미지 출처·제품군·source sampling 메타데이터 CSV를 둔다.
+
+가산점 심사용 `custom_data_v1.zip` Release Asset에는 검수 완료 자체 수집 이미지 500장, CVAT box/transcription XML, DET·REC 라벨을 담는다. 별도 실사 검증 214장은 학습에 사용하지 않았으며, 파일 출처·제품군·source sampling 정보는 `custom_data/metadata/`에 기록되어 있다.
+
+## 문서
+
+요약서 PDF의 논문 인용 번호 `[1]`~`[10]` 대응표는 [docs/README_references.md](docs/README_references.md)에 있다. 요약서 PDF 자체는 안내된 이메일 제출물이다.
 
 ## 구조
-```
-predict.ipynb     메인 추론 노트북 (채점 대상)
-predict_runtime.py 공통 CPU 추론 코드
-requirements.txt  의존성
-weights/          모델 가중치
-  det_single/      현재 임시 단일 DET
-  det_full/        full DET (선택)
-  det_date/        date-only DET (선택)
-  rec_v5/         파인튜닝 korean PP-OCRv5 (Release Asset)
-  rec_v6/         파인튜닝 PP-OCRv6 (Release Asset)
-notebooks/        실험·분석 (채점 대상 아님)
-custom_data/      가산점 심사용 자체 수집 이미지·라벨
+
+```text
+predict.ipynb          채점 대상 메인 노트북
+itda_ocr/              오프라인 추론·parser 모듈
+download_weights.sh    온라인 상태의 사전 가중치 다운로드 전용
+requirements.txt       Python 3.10 고정 의존성
+weights/               Release Asset이 풀리는 위치
+custom_data/           자체 수집 데이터 설명·메타데이터
+docs/                  요약서 인용 참고문헌
 ```
