@@ -3,7 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 WEIGHTS_DIR="$SCRIPT_DIR/weights"
-WEIGHTS_URL='https://github.com/SUNGHOONOH/ITDA_TerrorBum_Expiry-Date/releases/download/ft2-v0/itda-ocr-weights.tar.gz'
+WEIGHTS_URL='https://github.com/SUNGHOONOH/ITDA_TerrorBum_Expiry-Date/releases/download/ft4/itda-ocr-weights-v4.tar.gz'
 mkdir -p "$WEIGHTS_DIR"
 
 model_ready() {

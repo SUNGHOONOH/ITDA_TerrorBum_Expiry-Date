@@ -7,8 +7,21 @@ ipykernel==6.29.5
 paddlepaddle==3.3.1
 paddleocr==3.7.0
 
-# ── 공통 ─────────────────────────────────────────
+# ── predict.ipynb / itda_ocr 직접 사용 패키지 ─────
+# 아래 항목은 PaddleOCR가 내부적으로 끌어오는 패키지와 별도로 직접 고정한다.
 numpy==1.26.4
 pandas==2.2.2
 opencv-python-headless==4.10.0.84
 python-dateutil==2.9.0.post0
+
+# ── PaddleOCR CPU 전처리·후처리 지원 ──────────────
+# 방향 분류·UVDoc·이미지 전처리 경로에서 사용되는 런타임 의존성이다.
+Pillow==12.3.0
+PyYAML==6.0.2
+scipy==1.15.3
+scikit-image==0.25.2
+shapely==2.1.2
+pyclipper==1.4.0
+lmdb==2.3.0
+tqdm==4.70.0
+rapidfuzz==3.14.5

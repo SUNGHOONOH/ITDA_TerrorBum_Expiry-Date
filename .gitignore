@@ -15,6 +15,7 @@ custom_data_v*.zip
 # 대용량 가중치
 weights/*
 !weights/README.md
+!weights/SHA256SUMS
 *.pt
 *.pth
 *.pdiparams
