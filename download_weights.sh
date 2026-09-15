@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 WEIGHTS_DIR="$SCRIPT_DIR/weights"
+WEIGHTS_URL='https://github.com/SUNGHOONOH/ITDA_TerrorBum_Expiry-Date/releases/download/ft2-v0/itda-ocr-weights.tar.gz'
 mkdir -p "$WEIGHTS_DIR"
 
 model_ready() {
@@ -20,10 +21,9 @@ done
 if [ "$required_ready" = true ]; then
   printf 'bundled: det_single + rec_v5 + rec_v6\n'
 else
-  : "${ITDA_PP_OCR_WEIGHTS_URL:?Set ITDA_PP_OCR_WEIGHTS_URL to the release URL of itda-ocr-weights.tar.gz}"
   tmp_dir=$(mktemp -d)
   trap 'rm -rf "$tmp_dir"' EXIT INT TERM
-  curl --fail --location "$ITDA_PP_OCR_WEIGHTS_URL" \
+  curl --fail --location "$WEIGHTS_URL" \
     --output "$tmp_dir/itda-rec-weights.tar.gz"
   tar -xzf "$tmp_dir/itda-rec-weights.tar.gz" -C "$WEIGHTS_DIR"
   for model in det_single rec_v5 rec_v6; do

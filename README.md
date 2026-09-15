@@ -15,7 +15,6 @@ GPU와 외부 API를 사용하지 않는다. CPU 스레드는 4개로 고정한�
 채점 서버는 인터넷이 차단되어 있다. 운영진은 온라인 상태에서 **한 번만** 다음을 실행해 Release Asset의 가중치를 `weights/`에 내려받는다.
 
 ```bash
-export ITDA_PP_OCR_WEIGHTS_URL='https://github.com/SUNGHOONOH/ITDA_TerrorBum_Expiry-Date/releases/download/<tag>/itda-ocr-weights.tar.gz'
 bash download_weights.sh
 ```
 
@@ -42,6 +41,18 @@ ITDA_INPUT_DIR=/tmp/test_imgs ITDA_OUTPUT_PATH=/tmp/submission.csv \
 ```
 
 `/tmp/submission.csv`가 생성되면 제출 환경 검증을 통과한다.
+
+## 4차 가중치 교체
+
+현재 `ft2-v0`는 제출 구조를 검증하기 위한 fallback이다. 4차 학습이 끝나면 동일한 export 형식으로 다음 세 디렉터리의 내용만 교체한다.
+
+```text
+weights/det_single/   4차 단일 DET export
+weights/rec_v5/       4차 PP-OCRv5 export
+weights/rec_v6/       4차 PP-OCRv6 export
+```
+
+그 뒤 같은 파일명 `itda-ocr-weights.tar.gz`로 새 Release Asset을 만들고, `download_weights.sh`의 `WEIGHTS_URL`을 새 Release URL로 바꿔 커밋한다. `predict.ipynb`, `itda_ocr/`, `requirements.txt`는 export 형식과 입력·출력 계약이 같다면 수정하지 않는다.
 
 ## 출력
 
