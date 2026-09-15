@@ -48,29 +48,12 @@ bash download_weights.sh
 
 `download_weights.sh`가 준비하는 모델은 `det_single`, `rec_v5`, `rec_v6`, `textline_ori`, `uvdoc`입니다. `predict.ipynb`와 `notebooks/itda_ocr/`에는 실행 중 다운로드하는 코드가 없습니다. 가중치가 없거나 해시가 다르면 즉시 오류가 나도록 되어 있습니다.
 
-
-
-위 단계가 끝난 뒤 Wi-Fi 또는 네트워크를 끄십시오. `download_weights.sh`는 온라인 상태에서만 실행합니다.
-
-## 2. 10장 오프라인 smoke test
-
-`test_imgs/`에 테스트 이미지 10장을 넣어 두면 아래 명령 하나로 실행할 수 있습니다. 이 검사는 정확도가 아니라 패키지·가중치·노트북 실행과 CSV 출력 계약을 확인합니다.
-
-```bash
-ITDA_INPUT_DIR=./test_imgs ITDA_OUTPUT_PATH=/tmp/submission.csv \
-jupyter nbconvert --to notebook --execute predict.ipynb \
-  --ExecutePreprocessor.timeout=2400 \
-  --output /tmp/executed.ipynb
-```
-
-`jupyter`를 찾지 못하면 `jupyter nbconvert` 대신 `python -m jupyter nbconvert`를 사용합니다. `/tmp/submission.csv`가 생성되고 10행이며 열이 `image_id,year,month,day,final_date`이면 smoke test를 통과한 것입니다.
-
-## 3. 전체 검증 또는 제출 전 실행
+## 2. 전체 검증 또는 제출 전 실행
 
 검증 이미지가 들어 있는 폴더를 지정해 동일한 방식으로 실행합니다. 실제 채점 입력에서는 운영진이 `ITDA_INPUT_DIR`와 `ITDA_OUTPUT_PATH`만 주입합니다.
 
 ```bash
-ITDA_INPUT_DIR=/path/to/500_images \
+ITDA_INPUT_DIR=/tmp/test_images \
 ITDA_OUTPUT_PATH=/tmp/submission.csv \
 jupyter nbconvert --to notebook --execute predict.ipynb \
   --ExecutePreprocessor.timeout=2400 \
