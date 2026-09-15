@@ -1,8 +1,8 @@
-"""CPU inference runtime used by the submission notebook.
+"""Offline CPU inference runtime used by the submission notebook.
 
-The recognition path deliberately runs the fine-tuned Korean PP-OCRv5 and
-numeric PP-OCRv6 recognizers for every detected text line. One fine-tuned
-PP-OCRv6 detector supplies candidates for the shared date-selection code.
+The runtime uses one fine-tuned detector, both fine-tuned recognizers, and the
+small preprocessing/rescue path validated in the fourth-round test. All model
+directories are local; this module never downloads weights.
 """
 
 from __future__ import annotations
@@ -23,11 +23,19 @@ from .parser import (
 
 
 REC_FILES = ("inference.json", "inference.pdiparams", "inference.yml")
+UVDOC_FILES = ("model.safetensors", "config.json", "preprocessor_config.json", "inference.yml")
+MODEL_FILES = {
+    "det_single": REC_FILES,
+    "rec_v5": REC_FILES,
+    "rec_v6": REC_FILES,
+    "textline_ori": REC_FILES,
+    "uvdoc": UVDOC_FILES,
+}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
 
-def _model_ready(path: Path) -> bool:
-    return all((path / name).is_file() for name in REC_FILES)
+def _model_ready(path: Path, required_files=REC_FILES) -> bool:
+    return all((path / name).is_file() for name in required_files)
 
 
 def _sha256(path: Path) -> str:
@@ -39,8 +47,11 @@ def _sha256(path: Path) -> str:
 
 
 def ensure_weights(weights_dir: Path) -> None:
-    required = [weights_dir / "det_single", weights_dir / "rec_v5", weights_dir / "rec_v6"]
-    missing = [str(path) for path in required if not _model_ready(path)]
+    missing = [
+        str(weights_dir / name)
+        for name, files in MODEL_FILES.items()
+        if not _model_ready(weights_dir / name, files)
+    ]
     if missing:
         raise FileNotFoundError(
             "offline runtime: model files are missing: " + ", ".join(missing)
@@ -60,8 +71,8 @@ def ensure_weights(weights_dir: Path) -> None:
 
 
 def load_models(weights_dir: Path, cpu_threads: int = 4):
-    """Load the one DET model and both fixed REC models once."""
-    from paddleocr import TextDetection, TextRecognition
+    """Load all local models once; the expensive UVDoc model stays lazy."""
+    from paddleocr import TextDetection, TextLineOrientationClassification, TextRecognition
 
     kwargs = dict(device="cpu", enable_mkldnn=False, cpu_threads=cpu_threads)
     recognizers = {
@@ -79,9 +90,24 @@ def load_models(weights_dir: Path, cpu_threads: int = 4):
     detector = TextDetection(
         model_name="PP-OCRv6_small_det",
         model_dir=str(weights_dir / "det_single"),
+        limit_side_len=1280,
+        limit_type="max",
+        box_thresh=0.30,
         **kwargs,
     )
-    return {"detector": detector, "recognizers": recognizers}
+    orientation = TextLineOrientationClassification(
+        model_name="PP-LCNet_x0_25_textline_ori",
+        model_dir=str(weights_dir / "textline_ori"),
+        **kwargs,
+    )
+    return {
+        "detector": detector,
+        "orientation": orientation,
+        "recognizers": recognizers,
+        "uvdoc": None,
+        "uvdoc_error": "",
+        "uvdoc_dir": weights_dir / "uvdoc",
+    }
 
 
 def detect(image: np.ndarray, detector) -> list[np.ndarray]:
@@ -113,6 +139,71 @@ def padded_crop(image: np.ndarray, box: np.ndarray, pad_x: float = 0.35, pad_y: 
     return image[y1:y2, x1:x2]
 
 
+CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+
+def _to_gray(image: np.ndarray) -> np.ndarray:
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if image.ndim == 3 else image
+
+
+def _to_bgr(image: np.ndarray) -> np.ndarray:
+    return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR) if image.ndim == 2 else image
+
+
+def _upscale(image: np.ndarray, target_height: int = 96) -> np.ndarray:
+    scale = min(3.0, target_height / max(1, image.shape[0]))
+    if scale <= 1:
+        return image
+    return cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+
+def _dark_text(gray: np.ndarray) -> np.ndarray:
+    bright = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1] > 0
+    return 255 - gray if bright.mean() < 0.5 else gray
+
+
+def _view_clahe(image: np.ndarray) -> np.ndarray:
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    lab[..., 0] = CLAHE.apply(lab[..., 0])
+    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+
+def _view_dot_close(image: np.ndarray) -> np.ndarray:
+    gray = CLAHE.apply(_dark_text(_to_gray(image)))
+    inverse = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+    size = 2 if gray.shape[0] < 120 else 3
+    joined = cv2.morphologyEx(
+        inverse,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size)),
+    )
+    return 255 - joined
+
+
+def _rescue_crop(image: np.ndarray, box: np.ndarray, pad_x: float = 1.0, pad_y: float = 0.25) -> np.ndarray:
+    points = np.asarray(box, dtype=np.int32)
+    x, y, width, height = cv2.boundingRect(points)
+    px, py = int(round(height * pad_x)), int(round(height * pad_y))
+    return image[max(0, y - py):y + height + py, max(0, x - px):x + width + px].copy()
+
+
+def _make_views(image: np.ndarray, box: np.ndarray) -> list[tuple[str, np.ndarray]]:
+    base = _upscale(_rescue_crop(image, box))
+    return [("pad", base), ("clahe", _view_clahe(base)), ("dot_close", _to_bgr(_view_dot_close(base)))]
+
+
+def _orient_crops(crops: list[np.ndarray], orientation) -> list[np.ndarray]:
+    if not crops:
+        return []
+    outputs = orientation.predict(crops, batch_size=min(16, len(crops)))
+    oriented = []
+    for crop, item in zip(crops, outputs):
+        labels = item.get("label_names", [])
+        label = str(labels[0]) if labels else "0_degree"
+        oriented.append(cv2.rotate(crop, cv2.ROTATE_180) if label.startswith("180") else crop)
+    return oriented
+
+
 def parse_dates(text: str) -> list[tuple[str, str, str]]:
     """Compatibility wrapper used while comparing the two REC outputs."""
     return list(_extract_date_candidates(text))
@@ -137,8 +228,14 @@ def _recognize_batch(model, crops: list[np.ndarray]) -> list[tuple[str, float]]:
     return [(str(item["rec_text"]).strip(), float(item["rec_score"])) for item in outputs]
 
 
-def recognize_boxes(image: np.ndarray, boxes: list[np.ndarray], models, source: str) -> list[dict]:
-    crops = [crop_quad(image, box) for box in boxes]
+def recognize_boxes(
+    image: np.ndarray,
+    boxes: list[np.ndarray],
+    models,
+    source: str,
+    box_offset: int = 0,
+) -> list[dict]:
+    crops = _orient_crops([crop_quad(image, box) for box in boxes], models["orientation"])
     v5 = _recognize_batch(models["recognizers"]["v5"], crops)
     v6 = _recognize_batch(models["recognizers"]["v6"], crops)
     records = []
@@ -154,7 +251,7 @@ def recognize_boxes(image: np.ndarray, boxes: list[np.ndarray], models, source: 
         records.append({
             "text": text, "conf": score, "variant": variant, "source": source,
             "v5_text": text5, "v6_text": text6, "v5_conf": score5, "v6_conf": score6,
-            "box": np.asarray(box).tolist(), "joined": False,
+            "box": np.asarray(box).tolist(), "box_index": box_offset + index, "joined": False,
         })
     return records
 
@@ -195,18 +292,137 @@ def choose(records: list[dict]):
     )
 
 
+def _box_iou(first: np.ndarray, second: np.ndarray) -> float:
+    ax, ay, aw, ah = cv2.boundingRect(np.asarray(first, dtype=np.int32))
+    bx, by, bw, bh = cv2.boundingRect(np.asarray(second, dtype=np.int32))
+    intersection = max(0, min(ax + aw, bx + bw) - max(ax, bx)) * max(
+        0, min(ay + ah, by + bh) - max(ay, by)
+    )
+    return intersection / max(1, aw * ah + bw * bh - intersection)
+
+
+def _choose_confidence(records: list[dict], winner: dict | None) -> float:
+    if not winner:
+        return 0.0
+    matching = [record for record in records if record.get("text") == winner.get("text")]
+    if not matching:
+        matching = [record for record in records if record.get("text") in str(winner.get("text", ""))]
+    return max((float(record.get("conf", 0.0)) for record in matching), default=0.0)
+
+
+def _get_uvdoc(models):
+    if models["uvdoc"] is not None or models["uvdoc_error"]:
+        return models["uvdoc"]
+    try:
+        from paddleocr import TextImageUnwarping
+
+        models["uvdoc"] = TextImageUnwarping(
+            model_name="UVDoc",
+            model_dir=str(models["uvdoc_dir"]),
+            device="cpu",
+            enable_mkldnn=False,
+            cpu_threads=4,
+        )
+    except Exception as error:  # pragma: no cover - only used for an invalid local export
+        models["uvdoc_error"] = f"{type(error).__name__}: {error}"
+    return models["uvdoc"]
+
+
+def _rescue(
+    image: np.ndarray,
+    models,
+    boxes: list[np.ndarray],
+    records: list[dict],
+    winner: dict | None,
+    confidence: float,
+) -> tuple[dict | None, float]:
+    """Retry low-confidence cases with contrast, padding, and local UVDoc."""
+    if winner is None:
+        extra = [
+            box
+            for box in detect(_view_clahe(image), models["detector"])
+            if all(_box_iou(box, old) < 0.5 for old in boxes)
+        ]
+        if extra:
+            records.extend(recognize_boxes(image, extra, models, "det_clahe", len(boxes)))
+            boxes.extend(extra)
+            winner = choose(records)
+            confidence = _choose_confidence(records, winner)
+
+    base = [
+        index
+        for index, record in enumerate(records)
+        if record.get("variant") in {"raw", "v6", "det_clahe"}
+        and record.get("box_index", -1) < len(boxes)
+    ]
+    if winner:
+        base.sort(key=lambda index: records[index].get("text") != winner.get("text"))
+    targets = base[:2]
+
+    if (winner is None or confidence < 0.50) and targets:
+        views = [
+            (index, name, view)
+            for index in targets
+            for name, view in _make_views(image, boxes[records[index]["box_index"]])
+        ]
+        texts = _recognize_batch(models["recognizers"]["v5"], [view for _, _, view in views])
+        for (index, name, _), (text, score) in zip(views, texts):
+            original = records[index]
+            records.append({
+                "text": text,
+                "conf": score,
+                "variant": name,
+                "source": "rescue",
+                "v5_text": text,
+                "v6_text": "",
+                "box": original["box"],
+                "box_index": original["box_index"],
+                "joined": False,
+            })
+        winner = choose(records)
+        confidence = _choose_confidence(records, winner)
+
+    if (winner is None or confidence < 0.50) and targets:
+        uvdoc = _get_uvdoc(models)
+        if uvdoc is not None:
+            first = records[targets[0]]
+            crop = _rescue_crop(image, boxes[first["box_index"]])
+            try:
+                output = next(iter(uvdoc.predict(crop, batch_size=1)))
+                flat = np.asarray(output["doctr_img"])
+                if flat.ndim == 3 and flat.size:
+                    if flat.dtype != np.uint8:
+                        flat = np.clip(flat * (255.0 if flat.max() <= 1.0 else 1.0), 0, 255).astype(np.uint8)
+                    flat = cv2.cvtColor(flat, cv2.COLOR_RGB2BGR)
+                    variants = [("uvdoc", flat), ("uvdoc_clahe", _view_clahe(flat))]
+                    texts = _recognize_batch(models["recognizers"]["v5"], [view for _, view in variants])
+                    for (name, _), (text, score) in zip(variants, texts):
+                        records.append({
+                            "text": text,
+                            "conf": score,
+                            "variant": name,
+                            "source": "uvdoc",
+                            "v5_text": text,
+                            "v6_text": "",
+                            "box": first["box"],
+                            "box_index": first["box_index"],
+                            "joined": False,
+                        })
+                    winner = choose(records)
+                    confidence = _choose_confidence(records, winner)
+            except Exception as error:  # pragma: no cover - depends on malformed input crop
+                models["uvdoc_error"] = f"{type(error).__name__}: {error}"
+    return winner, confidence
+
+
 def predict_image(image: np.ndarray, models):
     boxes = detect(image, models["detector"])
     records = recognize_boxes(image, boxes, models, "det_single")
 
     winner = choose(records)
-    if winner is None and boxes:
-        retry = []
-        for box in boxes[:2]:
-            crop = padded_crop(image, box)
-            if crop.size:
-                retry.extend(recognize_boxes(crop, [np.array([[0, 0], [crop.shape[1] - 1, 0], [crop.shape[1] - 1, crop.shape[0] - 1], [0, crop.shape[0] - 1]], dtype=np.float32)], models, "retry"))
-        winner = choose(records + retry)
+    confidence = _choose_confidence(records, winner)
+    if winner is None or confidence < 0.50:
+        winner, confidence = _rescue(image, models, boxes, records, winner, confidence)
     return winner["date"] if winner else ("NONE", "NONE", "NONE")
 
 

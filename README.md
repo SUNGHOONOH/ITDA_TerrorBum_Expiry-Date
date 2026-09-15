@@ -6,6 +6,7 @@
 
 - 단일 파인튜닝 `PP-OCRv6_small_det`
 - 파인튜닝 `korean_PP-OCRv5_mobile_rec`와 `PP-OCRv6_small_rec`의 동시 인식
+- 텍스트 방향 분류, CLAHE/패딩 rescue, 로컬 UVDoc 원근 보정
 - 소비/유통기한 문맥, 날짜 유효성, 좌표를 결합하는 날짜 parser
 
 GPU와 외부 API를 사용하지 않는다. CPU 스레드는 4개로 고정한다.
@@ -18,7 +19,9 @@ GPU와 외부 API를 사용하지 않는다. CPU 스레드는 4개로 고정한�
 bash download_weights.sh
 ```
 
-`predict.ipynb`에는 가중치 다운로드 코드가 없으며, 이미 존재하는 `weights/det_single`, `weights/rec_v5`, `weights/rec_v6`만 읽는다.
+`predict.ipynb`에는 가중치 다운로드 코드가 없으며, 이미 존재하는
+`weights/det_single`, `weights/rec_v5`, `weights/rec_v6`, `weights/textline_ori`,
+`weights/uvdoc`만 읽는다.
 
 ## 채점 재현성 검증
 
@@ -44,7 +47,7 @@ ITDA_INPUT_DIR=/tmp/test_imgs ITDA_OUTPUT_PATH=/tmp/submission.csv \
 
 ## 4차 가중치 교체
 
-현재 `ft2-v0`는 제출 구조를 검증하기 위한 fallback이다. 4차 학습이 끝나면 동일한 export 형식으로 다음 세 디렉터리의 내용만 교체한다.
+현재 `ft2-v0`는 제출 구조를 검증하기 위한 fallback이다. 4차 학습이 끝나면 동일한 export 형식으로 다음 세 학습 모델 디렉터리의 내용만 교체한다.
 
 ```text
 weights/det_single/   4차 단일 DET export
@@ -52,7 +55,11 @@ weights/rec_v5/       4차 PP-OCRv5 export
 weights/rec_v6/       4차 PP-OCRv6 export
 ```
 
-그 뒤 같은 파일명 `itda-ocr-weights.tar.gz`로 새 Release Asset을 만들고, `download_weights.sh`의 `WEIGHTS_URL`을 새 Release URL로 바꿔 커밋한다. `predict.ipynb`, `itda_ocr/`, `requirements.txt`는 export 형식과 입력·출력 계약이 같다면 수정하지 않는다.
+`weights/textline_ori/`와 `weights/uvdoc/`는 4차 전처리용 고정 모델이라 그대로 유지한다.
+
+그 뒤 다섯 디렉터리를 포함한 `itda-ocr-weights.tar.gz`로 새 Release Asset을 만들고,
+`download_weights.sh`의 `WEIGHTS_URL`을 새 Release URL로 바꿔 커밋한다.
+`predict.ipynb`, `itda_ocr/`, `requirements.txt`는 export 형식과 입력·출력 계약이 같다면 수정하지 않는다.
 
 ## 출력
 
