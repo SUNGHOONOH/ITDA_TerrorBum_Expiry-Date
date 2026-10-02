@@ -7,6 +7,10 @@ ipykernel==6.29.5
 paddlepaddle==3.3.1
 paddleocr==3.7.0
 
+# ── YOLO11n 필드 검출 (ONNX, 2단계) ─────────────
+# ultralytics 대신 onnxruntime만 쓴다 (GUI용 opencv를 끌고 오지 않음).
+onnxruntime==1.23.2
+
 # ── predict.ipynb / itda_ocr 직접 사용 패키지 ─────
 # 아래 항목은 PaddleOCR가 내부적으로 끌어오는 패키지와 별도로 직접 고정한다.
 numpy==1.26.4

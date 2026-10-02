@@ -1,0 +1,67 @@
+# Fresh virtualenv reproduction log
+# date: 2026-10-02 19:34 KST
+# host: Darwin arm64 (Apple M1), Python 3.10.21
+# note: local macOS run of the official procedure; grading env is Ubuntu 22.04 x86_64 / 4-core / 8GB
+# weights: GitHub Release ft5 / itda-ocr-weights-v5.tar.gz (sha256 67e547eb847e3e9225322fcfbaf8fad5abf55a8b672521743357b7a282f86d0f)
+
+$ python3.10 -m venv .venv && source .venv/bin/activate
+$ pip install -r requirements.txt
+  ipykernel==6.29.5
+  nbconvert==7.16.4
+  numpy==1.26.4
+  onnxruntime==1.23.2
+  opencv-contrib-python==4.10.0.84
+  opencv-python-headless==4.10.0.84
+  paddleocr==3.7.0
+  paddlepaddle==3.3.1
+  paddlex==3.7.2
+  pandas==2.2.2
+$ bash download_weights.sh
+downloaded: det_single rec_v5 rec_v6 textline_ori uvdoc yolo_field refiner_det rec_v5_med rec_v6_med
+$ (cd weights && shasum -a 256 -c SHA256SUMS)
+det_single/inference.json: OK
+det_single/inference.pdiparams: OK
+det_single/inference.yml: OK
+rec_v5/inference.json: OK
+rec_v5/inference.pdiparams: OK
+rec_v5/inference.yml: OK
+rec_v5_med/inference.json: OK
+rec_v5_med/inference.pdiparams: OK
+rec_v5_med/inference.yml: OK
+rec_v6/inference.json: OK
+rec_v6/inference.pdiparams: OK
+rec_v6/inference.yml: OK
+rec_v6_med/inference.json: OK
+rec_v6_med/inference.pdiparams: OK
+rec_v6_med/inference.yml: OK
+refiner_det/inference.json: OK
+refiner_det/inference.pdiparams: OK
+refiner_det/inference.yml: OK
+textline_ori/config.json: OK
+textline_ori/inference.json: OK
+textline_ori/inference.pdiparams: OK
+textline_ori/inference.yml: OK
+uvdoc/config.json: OK
+uvdoc/inference.yml: OK
+uvdoc/model.safetensors: OK
+uvdoc/preprocessor_config.json: OK
+yolo_field/best.onnx: OK
+$ ITDA_INPUT_DIR=./test_imgs ITDA_OUTPUT_PATH=/tmp/out.csv jupyter nbconvert --to notebook --execute predict.ipynb --output /tmp/executed.ipynb
+[NbConvertApp] Converting notebook predict.ipynb to notebook
+[NbConvertApp] Writing 7525 bytes to /tmp/executed.ipynb
+real 85.52
+user 19.18
+sys 2.27
+$ cat /tmp/out.csv
+image_id,year,month,day,final_date
+000001,2027,06,26,2027-06-26
+000002,2025,12,11,2025-12-11
+000003,2026,05,12,2026-05-12
+000004,2022,02,14,2022-02-14
+000005,2026,07,02,2026-07-02
+000006,2026,02,17,2026-02-17
+000007,2026,06,25,2026-06-25
+000008,2027,06,29,2027-06-29
+000009,2026,10,29,2026-10-29
+000010,2026,06,08,2026-06-08
+exit code: 0

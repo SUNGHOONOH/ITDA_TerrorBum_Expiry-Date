@@ -22,7 +22,7 @@
 
 ## 확인한 결과와 한계
 
-개인적으로 구성한 고정 검증 세트 200장 중 187장에서 날짜를 맞혀 **93.5%**를 확인했습니다. 이 수치는 공모전 비공개 평가 점수나 실제 서비스 성능이 아닙니다. 촬영 조건과 상품 종류가 바뀐 데이터로 추가 검증해야 하며, 실행 시간도 공식 성능 지표로 제시하지 않습니다.
+직접 구성한 고정 평가 500장(직접 촬영 200장 + 학습에 쓰지 않은 제공 원본 300장)에서 4차 파이프라인 기준 418장을 맞혀 **83.6%**를 확인했습니다. 학습에 쓰지 않은 원본 300장만 보면 94.3%, 반사·곡면·도트 인쇄가 많은 직접 촬영 200장은 67.5%입니다. 이 수치는 공모전 비공개 평가 점수나 실제 서비스 성능이 아닙니다. 촬영 조건과 상품 종류가 바뀐 데이터로 추가 검증해야 하며, 실행 시간도 공식 성능 지표로 제시하지 않습니다.
 
 ## 주요 파일 안내
 
@@ -31,6 +31,8 @@
 | [`predict.ipynb`](predict.ipynb) | 입력 이미지에서 제출 CSV까지 이어지는 전체 실행 |
 | [`notebooks/itda_ocr/runtime.py`](notebooks/itda_ocr/runtime.py) | OCR 경로와 저신뢰 결과의 재시도 |
 | [`notebooks/itda_ocr/parser.py`](notebooks/itda_ocr/parser.py) | 날짜 후보 정규화·선택·거절 |
+| [`notebooks/itda_ocr/fields.py`](notebooks/itda_ocr/fields.py) | 1단계가 NONE일 때만 도는 YOLO11n 필드 검출 2단계 |
+| [`logs/fresh_venv_run.log`](logs/fresh_venv_run.log) | 새 가상환경 재현 실행 로그 |
 | [`download_weights.sh`](download_weights.sh) | 오프라인 실행 전 가중치 준비 |
 
 ## 실행 방법
@@ -46,8 +48,19 @@ README.md             설치·가중치·오프라인 실행 안내
 download_weights.sh   가중치 다운로드 전용 스크립트
 weights/              로컬 모델 가중치
 notebooks/itda_ocr/   노트북이 import하는 추론 모듈
+                      runtime.py (1단계 DET+REC+재시도) · fields.py (2단계 YOLO 필드 검출) · parser.py (날짜 파서)
 test_imgs/             로컬 10장 smoke test용 이미지 (선택)
 ```
+
+### 파이프라인 (단계형)
+
+```text
+사진 ─▶ [1단계] 단일 DET → v5 + v6 REC → 날짜 파서 (+ 신뢰도 낮으면 패딩·CLAHE·도트 연결·UVDoc 재시도)
+          ├─ 날짜가 나오면 그대로 출력
+          └─ NONE이면 ─▶ [2단계] YOLO11n 필드 검출(ONNX) → 범용 DET로 위치 보정 → 5차 REC → 같은 날짜 파서
+```
+
+2단계는 1단계가 날짜를 찾지 못한 사진에서만 실행되므로 평균 처리 시간은 1단계와 거의 같습니다. YOLO 추론은 `onnxruntime`만 사용합니다.
 
 ### 1. 온라인 상태에서 사전 준비
 
@@ -81,7 +94,7 @@ bash download_weights.sh
 # (cd weights && shasum -a 256 -c SHA256SUMS)
 ```
 
-`download_weights.sh`가 준비하는 모델은 `det_single`, `rec_v5`, `rec_v6`, `textline_ori`, `uvdoc`입니다. `predict.ipynb`와 `notebooks/itda_ocr/`에는 실행 중 다운로드하는 코드가 없습니다. 가중치가 없거나 해시가 다르면 즉시 오류가 나도록 되어 있습니다.
+`download_weights.sh`가 준비하는 모델은 1단계용 `det_single`, `rec_v5`, `rec_v6`, `textline_ori`, `uvdoc`과 2단계용 `yolo_field`(YOLO11n ONNX), `refiner_det`, `rec_v5_med`, `rec_v6_med`입니다 (`weights/README.md` 참고). `predict.ipynb`와 `notebooks/itda_ocr/`에는 실행 중 다운로드하는 코드가 없습니다. 가중치가 없거나 해시가 다르면 즉시 오류가 나도록 되어 있습니다.
 
 ### 2. 전체 검증 또는 제출 전 실행
 

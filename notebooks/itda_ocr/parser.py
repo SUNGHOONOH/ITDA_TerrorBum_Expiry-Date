@@ -184,7 +184,10 @@ _ASCII_PROCESS_ROLE_TEXT = (
     r")\.?(?=$|[^A-Z_])"
 )
 _ASCII_AMBIGUOUS_DIRECT_PROCESS_ROLE_TEXT = (
-    rf"(?<![A-Z0-9_])(?:PRO|PD|PKG|PACK|MAN|P)\.?(?=[\W_]*(?:\d|(?:{_MONTH_NAMES})(?![A-Z])))"
+    rf"(?<![A-Z0-9_])(?:(?:PRO|PD|PKG|PACK|MAN)\.?(?=[\W_]*(?:\d|(?:{_MONTH_NAMES})(?![A-Z])))"
+    # A bare P is a production mark only when welded to a complete date
+    # (``P09.10.2025``).  ``P5 26.07.29`` is a line code followed by the expiry.
+    r"|P\.?(?=[\W_]*\d{1,4}\s*[./_-]\s*\d{1,2}\s*[./_-]\s*\d{1,4}))"
 )
 _ASCII_LOT_ROLE_TEXT = (
     r"(?<![A-Z0-9_])(?:"
@@ -675,6 +678,18 @@ def _candidate_records(text: object, context: object = ""):
             forced_policy="md+clock",
         )
 
+    # A standalone clock (``11:34``) never contributes digits to a date.  The
+    # two-field rule already excludes colons; mask the token so the three-field,
+    # suffix-digit and compact rules cannot use its minutes as a year either
+    # (``11:34 .06.04`` was read as 2034-06-04).
+    def _mask_clock(match):
+        hour, minute = int(match.group(1)), int(match.group(2))
+        if hour > 23 or minute > 59 or overlaps(match.span()):
+            return match.group(0)
+        return "#" * len(match.group(0))
+
+    numeric = re.sub(r"(?<![\d./_:\-])(\d{1,2}):(\d{2})(?![\d:])", _mask_clock, numeric)
+
     # Named-month forms are order-explicit and therefore locale-independent.
     pattern = rf"(?<![A-Z0-9])(\d{{1,4}}){_SEP}({_MONTH_NAMES}){_SEP}(\d{{1,4}})(?![A-Z0-9])"
     for match in re.finditer(pattern, normalized):
@@ -955,7 +970,9 @@ def _candidate_records(text: object, context: object = ""):
     # A two-digit YMD stamp may carry one short OCR/lot suffix digit after DD.
     pattern = rf"(?<!\d)(\d{{2}}){_SEP}(\d{{1,2}}){_SEP}(\d{{2}})\d(?=\D|$)"
     for match in re.finditer(pattern, numeric):
-        if not overlaps(match.span()):
+        # Whitespace-only fields with a stray digit are number runs such as
+        # nutrition values (``34 9 185 kcal``), not a printed date stamp.
+        if not overlaps(match.span()) and re.search(r"[./,_\-]", match.group(0)):
             year, month, day = match.groups()
             add([make_date(year, month, day)], match.span(), forced_policy="ymd")
 

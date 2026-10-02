@@ -17,6 +17,7 @@ weights/*
 !weights/README.md
 !weights/SHA256SUMS
 *.pt
+*.onnx
 *.pth
 *.pdiparams
 *.safetensors

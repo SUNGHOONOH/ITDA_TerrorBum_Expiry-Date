@@ -262,6 +262,8 @@ def _joined_records(records: list[dict]) -> list[dict]:
         box = np.asarray(record["box"], dtype=np.float32)
         cy, height = float(box[:, 1].mean()), float(box[:, 1].max() - box[:, 1].min())
         row = next((item for item in rows if abs(cy - item["cy"]) <= 0.8 * max(height, item["height"])), None)
+        if row is not None and any(item.get("box_index") == record.get("box_index") for item in row["records"]):
+            continue  # 같은 박스의 재시도 변형끼리는 한 줄로 잇지 않는다 ('F3.1' + '05:44' → 가짜 날짜)
         if row is None:
             rows.append({"records": [record], "cy": cy, "height": max(height, 1.0)})
         else:
@@ -352,7 +354,7 @@ def _rescue(
     base = [
         index
         for index, record in enumerate(records)
-        if record.get("variant") in {"raw", "v6", "det_clahe"}
+        if record.get("variant") in {"raw", "v5", "v6"}  # v5로 채택된 박스도 재시도 (식품 500장 417→420, 새 오답 0)
         and record.get("box_index", -1) < len(boxes)
     ]
     if winner:
